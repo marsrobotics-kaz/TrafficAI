@@ -76,7 +76,7 @@ def open_camera():
 
         cap.release()
 
-    print("❌ Не удалось открыть ни одну камеру (индексы 0..4). " 
+    print("❌ Не удалось открыть ни одну камеру (индексы 0..4). "
           "Проверь, что другая программа не использует вебкамеру.")
     return None
 
@@ -98,8 +98,13 @@ ln = net.getUnconnectedOutLayersNames()
 
 # ---------- старт ----------
 ser = connect_arduino()
+
 current_light = "R"
 send(ser, "R")
+
+# режим перехода G -> Y -> R
+transition_state = None      # None или "Y_WAIT"
+transition_start = 0.0       # время начала мигания жёлтым
 
 # открываем камеру
 cap = open_camera()
@@ -148,18 +153,36 @@ while True:
             cars_count += 1
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
-    # --- логика светофора ---
-    desired = "G" if cars_count > 0 else "R"
+    # --- логика светофора с порогом и без блокировок ---
 
-    if current_light == "G" and desired == "R":
-        print("Машин нет → мигаем жёлтым и переходим на красный")
-        send(ser, "Y")
-        time.sleep(2.2)
-        current_light = "R"
-    elif desired != current_light:
-        print(f"Меняем свет: {current_light} → {desired}")
-        send(ser, desired)
-        current_light = desired
+    # 1) если сейчас идёт переход (мигание жёлтым), просто ждём по времени
+    if transition_state == "Y_WAIT":
+        # ждём 2.0 сек, при этом не блокируем кадры
+        if time.time() - transition_start >= 2.0:
+            # на Arduino режим 'Y' уже сам включил красный,
+            # мы только обновляем состояние
+            current_light = "R"
+            transition_state = None
+        # в режиме Y_WAIT мы не отправляем новых команд и не меняем desired
+    else:
+        # 2) обычный режим: считаем, какой цвет нужен
+        # зелёный только если машин > 3
+        if cars_count > 3:
+            desired = "G"
+        else:
+            desired = "R"
+
+        # переход G -> R: сначала жёлтый мигающий
+        if current_light == "G" and desired == "R":
+            print("Машин меньше или равно 3 → мигаем жёлтым и переходим на красный")
+            send(ser, "Y")                 # Arduino мигает жёлтым и сам включает красный
+            transition_state = "Y_WAIT"
+            transition_start = time.time()  # запоминаем время начала
+        elif desired != current_light and transition_state is None:
+            # обычная смена (напр. R -> G)
+            print(f"Меняем свет: {current_light} → {desired}")
+            send(ser, desired)
+            current_light = desired
 
     cv2.putText(frame, f"Cars: {cars_count}", (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
