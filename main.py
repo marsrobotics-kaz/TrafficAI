@@ -55,6 +55,32 @@ def send(ser, cmd):
         print("Ошибка отправки в Arduino:", e)
 
 
+# ---------- поиск камеры ----------
+def open_camera():
+    """
+    Пытаемся найти рабочую камеру с индексами 0..4.
+    На Windows используем DirectShow (CAP_DSHOW),
+    чтобы лучше цеплять USB-вебки.
+    """
+    is_windows = os.name == "nt"
+
+    for idx in range(5):
+        if is_windows:
+            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(idx)
+
+        if cap.isOpened():
+            print(f"✅ Камера найдена, индекс {idx}")
+            return cap
+
+        cap.release()
+
+    print("❌ Не удалось открыть ни одну камеру (индексы 0..4). " 
+          "Проверь, что другая программа не использует вебкамеру.")
+    return None
+
+
 # ---------- загрузка YOLO ----------
 cfg_path = resource_path(os.path.join("models", "yolov3-tiny.cfg"))
 weights_path = resource_path(os.path.join("models", "yolov3-tiny.weights"))
@@ -75,9 +101,9 @@ ser = connect_arduino()
 current_light = "R"
 send(ser, "R")
 
-cap = cv2.VideoCapture(0)
-if not cap.isOpened():
-    print("❌ Не удалось открыть камеру")
+# открываем камеру
+cap = open_camera()
+if cap is None:
     sys.exit(1)
 
 print("▶ Запуск TrafficAI. Нажми 'q' в окне видео для выхода.")
@@ -147,4 +173,3 @@ cap.release()
 if ser is not None:
     ser.close()
 cv2.destroyAllWindows()
-
